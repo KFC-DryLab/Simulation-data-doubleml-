@@ -1,0 +1,260 @@
+---
+title: "simulation data"
+output: word_document
+---
+# setting
+```{r}
+#reference doubleml.datasets.make_irm_data
+#https://docs.doubleml.org/stable/api/generated/doubleml.datasets.make_irm_data.html#doubleml-datasets-make-irm-data
+
+library(mvtnorm)
+#sample size, number of covariates, parameters setting
+n=7500
+p=10
+tim=c(0,1,2,3,4)
+beta=c(0.5,0.5,1,1/4,1/9,0,0,0,0,0)
+G=matrix(0,(p-2),(p-2))
+diag(G)=0.09
+theta=0
+logisticf=function(x){exp(x)/(1+exp(x))}
+cd=sqrt(logisticf(tim*0)^2*(pi^2/3)/((1-logisticf(tim*0)^2)*sum(beta*beta)))
+cy=sqrt((logisticf((tim*0+1.3)))^2/((1-(logisticf((tim*0+1.3)))^2)*sum(beta*beta)))
+
+#functions and matrices(save value)
+X1=matrix(0,n,(p-2))
+vaso=matrix(0,n,1)
+water=matrix(0,n,1)
+Death=matrix(0,n,1)
+treat=matrix(0,n,1)
+data=matrix(0,n*length(tim),19)
+data_D=matrix(0,n,length(tim))
+deathp=0
+```
+
+# generating
+```{r}
+#generating data----------------------------------------------------------------
+set.seed(1219)
+v=matrix(c(rnorm(n*(p-2),0,1)),n,(p-2))
+X2=matrix(c(rbinom(n,1,0.5),rnorm(n,0,1)),n,2)
+
+set.seed(61916)
+for(j in c(1:(length(tim)))){
+  X1=rmvnorm(n,rep(0,(p-2)),G)+v-matrix(theta,n,p-2)
+  X=cbind(X2,X1)
+  term=c(X%*%matrix(beta,p,1)*cd[j])
+  g=logisticf(term)
+  treat=matrix(rbinom(n,1,g),n,1)
+  water=matrix(rgamma(n,exp(term)/2,2),n,1)*5
+  water[water<0.01]=0
+  vaso=matrix(rgamma(n,exp(term)/2,2),n,1)/50
+  vaso[vaso<0.001]=0
+  theta=(water+vaso)/(1+water+vaso)
+  y=-0.6+0.5*X[,2]+0.5*exp(c(X%*%matrix(beta,p,1)*cy[j]))*(1-c(treat))
+  deathp=tanh(y)/2+0.5
+  data_D[,j]=c(rbinom(n,1,deathp))
+  Death=data_D[,j]
+  Score=c(rexp(n,(1-deathp/1.285)))
+  Dsofa=(Score-1)
+  Dsofamean=(1-deathp/1.285)^-1
+  y0=-0.6+0.5*X[,2]
+  y0=tanh(y0)/2+0.5
+  y1=-0.6+0.5*X[,2]+0.5*exp(c(X%*%matrix(beta,p,1)*cy[j]))
+  y1=tanh(y1)/2+0.5
+  
+  #store
+  data[c((n*tim[j]+1):(n*tim[j]+n)),1]=c(1:n)
+  data[c((n*tim[j]+1):(n*tim[j]+n)),2]=rep(tim[j],n)
+  data[c((n*tim[j]+1):(n*tim[j]+n)),3]=y1-y0
+  data[c((n*tim[j]+1):(n*tim[j]+n)),4]=Death
+  data[c((n*tim[j]+1):(n*tim[j]+n)),5]=(1-y1/1.285)^(-1)-(1-y0/1.285)^(-1)
+  data[c((n*tim[j]+1):(n*tim[j]+n)),6]=Dsofa
+  data[c((n*tim[j]+1):(n*tim[j]+n)),7]=c(treat)
+  data[c((n*tim[j]+1):(n*tim[j]+n)),18]=vaso
+  data[c((n*tim[j]+1):(n*tim[j]+n)),19]=water
+  data[c((n*tim[j]+1):(n*tim[j]+n)),8:17]=X
+}
+
+colnames(data)=c("id","bloc","true_ite.(Death)","Death","true_ite(Dsofa)","Dsofa","Treat","gender",
+                 "age","X1","X2","X3","X4","X5","X6","X7","X8","vaso","water")
+data=as.data.frame(data)
+data_bloc1=data[data$bloc==0,]
+data_bloc1$Death=data_D[,1]
+data_bloc1$Treat=1-data_bloc1$Treat
+
+#mark NA at Death=1
+for(j in c(1:(length(tim)-1))){
+  count=c(1:n)
+  deathid=count[c(count*data_D[,j])!=0]
+  for(i in c(1:length(deathid))){
+    data[(data$id==deathid[i] & data$bloc>=j),c(-1,-2)]=NA
+  }
+}
+data=na.omit(data)
+colnames(data_bloc1)=c("id","bloc","true_ite.(Death)","Death","true_ite(Dsofa)","Dsofa","Treat",
+                       "X1","X2","X3","X4","X5","X6","X7","X8","X9","X10","vaso","water")
+#-------------------------------------------------------------------------------
+```
+
+# export
+```{r}
+data_class=data_bloc1[,c(-5,-6,-18,-19)]
+data_cont=data_bloc1[,c(-3,-4,-18,-19)]
+write.csv(data_class,"C:/Users/ASUS/Desktop/cg working/CausalML/simulation data_DTR/for plan/simulation data(binary).csv",row.names = F)
+write.csv(data_cont,"C:/Users/ASUS/Desktop/cg working/CausalML/simulation data_DTR/for plan/simulation data(cont.).csv",row.names = F)
+write.csv(data,"C:/Users/ASUS/Desktop/cg working/CausalML/simulation data_DTR/for plan/simulation data.csv",row.names = F)
+```
+
+
+#===============================================================================
+#-------------------------------binary case-------------------------------------
+#===============================================================================
+```{r}
+#data view
+options(digits=4)
+table_view=as.data.frame(matrix(c(dim(data_class),sum(data_class$Death),sum(data_class$Treat)),1,4))
+colnames(table_view)=c("columns","rows","death","treatments")
+head(data_class,10)
+table_view
+```
+
+# ATE
+```{r}
+#calculating ATE
+n=2000000
+p=10
+tim=c(0,1,2,3,4)
+beta=c(0.5,0.5,1,1/4,1/9,0,0,0,0,0)
+G=matrix(0,(p-2),(p-2))
+diag(G)=0.09
+theta=0
+
+X1=matrix(0,n,(p-2))
+vaso=matrix(0,n,1)
+water=matrix(0,n,1)
+Death=matrix(0,n,1)
+treat=matrix(0,n,1)
+logisticf=function(x){exp(x)/(1+exp(x))}
+cd=sqrt(logisticf(tim*0)^2*(pi^2/3)/((1-logisticf(tim*0)^2)*sum(beta*beta)))
+cy=sqrt((logisticf((tim*0+1.3)))^2/((1-(logisticf((tim*0+1.3)))^2)*sum(beta*beta)))
+
+set.seed(1219)
+v=matrix(c(rnorm(n*(p-2),0,1)),n,(p-2))
+X2=matrix(c(rbinom(n,1,0.5),rnorm(n,0,1)),n,2)
+
+#generating
+j=1
+set.seed(61916)
+X1=rmvnorm(n,rep(0,(p-2)),G)+v-matrix(theta,n,p-2)
+X=cbind(X2,X1)
+term=c(X%*%matrix(beta,p,1)*cd[j])
+g=logisticf(term)
+y=-0.6+0.5*X[,2]+0.5*exp(c(X%*%matrix(beta,p,1)*cy[j]))*(1-c(treat))
+deathp=tanh(y)/2+0.5
+
+y0=-0.6+0.5*X[,2]
+y0=tanh(y0)/2+0.5
+y1=-0.6+0.5*X[,2]+0.5*exp(c(X%*%matrix(beta,p,1)*cy[j]))
+y1=tanh(y1)/2+0.5
+ATE=mean(y1-y0)
+#ATE
+ATE
+```
+
+# CATE(X2)
+```{r}
+#calculating CATE(X2)
+ft=2
+XX=sort(X[,ft])
+ITE=c(y1-y0)
+ITE=ITE[order(X[,ft])]
+qXX=quantile(XX,c(1:1000)/1000)
+CATE=rep(0,1000)
+CATE[1]=mean(ITE[XX<=qXX[1]])
+for(i in c(2:1000)){
+  temp=ITE[XX<=qXX[i] & XX>qXX[i-1]]
+  CATE[i]=mean(temp)
+}
+plot(qXX,CATE,pch=20,cex=0.5,xlim=c(-3,3.5),ylim=c(-0.4,0.6))
+abline(ATE,0,col="red")
+abline(0,0)
+```
+
+
+#===============================================================================
+#-----------------------------continuous case-----------------------------------
+#===============================================================================
+```{r}
+#data view
+options(digits=4)
+table_view=as.data.frame(matrix(c(dim(data_cont),mean(data_cont$Dsofa),sum(data_cont$Treat)),1,4))
+colnames(table_view)=c("columns","rows","mean(Dsofa)","treatments")
+head(data_cont,10)
+table_view
+```
+
+# ATE
+```{r}
+#calculating ATE
+n=2000000
+p=10
+tim=c(0,1,2,3,4)
+beta=c(0.5,0.5,1,1/4,1/9,0,0,0,0,0)
+G=matrix(0,(p-2),(p-2))
+diag(G)=0.09
+theta=0
+
+X1=matrix(0,n,(p-2))
+vaso=matrix(0,n,1)
+water=matrix(0,n,1)
+Death=matrix(0,n,1)
+treat=matrix(0,n,1)
+logisticf=function(x){exp(x)/(1+exp(x))}
+cd=sqrt(logisticf(tim*0)^2*(pi^2/3)/((1-logisticf(tim*0)^2)*sum(beta*beta)))
+cy=sqrt((logisticf((tim*0+1.3)))^2/((1-(logisticf((tim*0+1.3)))^2)*sum(beta*beta)))
+
+set.seed(1219)
+v=matrix(c(rnorm(n*(p-2),0,1)),n,(p-2))
+X2=matrix(c(rbinom(n,1,0.5),rnorm(n,0,1)),n,2)
+
+#generating
+j=1
+set.seed(61916)
+X1=rmvnorm(n,rep(0,(p-2)),G)+v-matrix(theta,n,p-2)
+X=cbind(X2,X1)
+term=c(X%*%matrix(beta,p,1)*cd[j])
+g=logisticf(term)
+y=-0.6+0.5*X[,2]+0.5*exp(c(X%*%matrix(beta,p,1)*cy[j]))*(1-c(treat))
+deathp=tanh(y)/2+0.5
+
+y0=-0.6+0.5*X[,2]
+y0=(1-(tanh(y0)/2+0.5)/1.285)^(-1)
+y1=-0.6+0.5*X[,2]+0.5*exp(c(X%*%matrix(beta,p,1)*cy[j]))
+y1=(1-(tanh(y1)/2+0.5)/1.285)^(-1)
+ATE=mean(y1-y0)
+#ATE
+options(digits = 5)
+ATE
+```
+
+# CATE(X2)
+```{r}
+##calculating CATE(X2)
+ft=2
+XX=sort(X[,ft])
+ITE=c(y1-y0)
+ITE=ITE[order(X[,ft])]
+qXX=quantile(XX,c(1:1000)/1000)
+CATE=rep(0,1000)
+CATE[1]=mean(ITE[XX<=qXX[1]])
+for(i in c(2:1000)){
+  temp=ITE[XX<=qXX[i] & XX>qXX[i-1]]
+  CATE[i]=mean(temp)
+}
+plot(qXX,CATE,pch=20,cex=0.5,xlim=c(-3,3.5))
+abline(ATE,0,col="red")
+abline(0,0)
+```
+
+
+
